@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical AI Chatbot v1.6 | Modern Healthcare</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=1.6">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="brand">
+                <div class="logo-box">
+                    <i class="fas fa-stethoscope"></i>
+                </div>
+                <div class="brand-info">
+                    <h1>Medical AI Chatbot</h1>
+                    <p>Modern Healthcare Assistant</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <div class="status-badge">
+                    Secure & Active
+                </div>
+                <button class="theme-toggle" id="theme-toggle" title="Toggle Light/Dark Mode">
+                    <i class="fas fa-moon"></i>
+                </button>
+            </div>
+        </header>
+
+        <main id="chat-history">
+            <!-- Initial Greeting -->
+            <div class="message bot-message">
+                Hello. I'm your Medical AI assistant. How can I help you today?
+                <span class="message-time">Just now</span>
+            </div>
+        </main>
+
+        <div class="input-container">
+            <form id="chat-form">
+                <div class="input-wrapper">
+                    <input type="file" id="file-input" style="display: none;" accept=".pdf,.jpg,.jpeg,.png">
+                    <button type="button" id="upload-btn" class="action-btn" title="Upload Prescription">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
+                    <button type="button" id="mic-btn" class="action-btn" title="Voice Input">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                    <input type="text" id="user-input" placeholder="How can I help you?" autocomplete="off" required>
+                    <button type="submit" class="send-btn">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        const fileInput = document.getElementById('file-input');
+        const uploadBtn = document.getElementById('upload-btn');
+        const micBtn = document.getElementById('mic-btn');
+        const themeToggle = document.getElementById('theme-toggle');
+        const chatHistory = document.getElementById('chat-history');
+
+        // --- Theme Logic ---
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        updateThemeIcon(currentTheme);
+
+        themeToggle.addEventListener('click', () => {
+            let theme = document.documentElement.getAttribute('data-theme');
+            let newTheme = theme === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        });
+
+        function updateThemeIcon(theme) {
+            const icon = themeToggle.querySelector('i');
+            icon.className = theme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
+        }
+
+        let isVoiceInput = false;
+
+        // --- Voice Recognition (STT) ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.lang = 'en-US';
+
+            micBtn.addEventListener('click', () => {
+                recognition.start();
+                micBtn.style.color = 'var(--neon-purple)';
+                micBtn.classList.add('pulse-mic');
+                isVoiceInput = true; // Enable voice response
+            });
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                userInput.value = transcript;
+                micBtn.style.color = 'var(--neon-blue)';
+                micBtn.classList.remove('pulse-mic');
+                
+                // Auto-submit if voice was used
+                setTimeout(() => {
+                    chatForm.dispatchEvent(new Event('submit'));
+                }, 500);
+            };
+
+            recognition.onerror = () => {
+                micBtn.style.color = 'var(--neon-blue)';
+                micBtn.classList.remove('pulse-mic');
+                isVoiceInput = false;
+            };
+        } else {
+            micBtn.style.display = 'none';
+        }
+
+        // --- Voice Synthesis (TTS) ---
+        function speak(text) {
+            if (!isVoiceInput) return; // Only speak if user used mic
+            
+            window.speechSynthesis.cancel(); // Stop any current speaking
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1;
+            utterance.pitch = 1;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // Handle upload button click
+        uploadBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Handle file selection
+        fileInput.addEventListener('change', async () => {
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            isVoiceInput = false; // Prescriptions analysis is text-only by default
+            appendMessage(`PROTOCOL: Analyzing ${file.name}...`, true);
+            const typingIndicator = showTypingIndicator();
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('http://127.0.0.1:5000/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                typingIndicator.remove();
+
+                if (data.analysis) {
+                    appendMessage("<b>[PRESCRIPTION SCAN COMPLETE]</b><br>" + data.analysis.replace(/\n/g, '<br>'));
+                } else {
+                    appendMessage("SCAN FAILED: Unauthorized data format or corrupted file.");
+                }
+            } catch (error) {
+                typingIndicator.remove();
+                appendMessage("CONNECTION ERROR: Neural link unstable.");
+            }
+            fileInput.value = '';
+        });
+
+        function appendMessage(text, isUser = false) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
+            
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            msgDiv.innerHTML = `
+                ${text}
+                <span class="message-time">${time}</span>
+            `;
+            
+            chatHistory.appendChild(msgDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            // Auto-speak bot messages ONLY if it was a voice input
+            if (!isUser && isVoiceInput) {
+                const plainText = text.replace(/<[^>]*>/g, '').replace(/\*/g, '');
+                speak(plainText);
+            }
+        }
+
+        function showTypingIndicator() {
+            const indicator = document.createElement('div');
+            indicator.className = 'message bot-message typing-indicator';
+            indicator.innerHTML = `
+                <div class="typing">
+                    <span></span><span></span><span></span>
+                </div>
+            `;
+            chatHistory.appendChild(indicator);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+            return indicator;
+        }
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            // Add user message
+            appendMessage(message, true);
+            userInput.value = '';
+
+            // Show typing indicator
+            const typingIndicator = showTypingIndicator();
+
+            try {
+                const response = await fetch('http://127.0.0.1:5000/get', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ msg: message })
+                });
+
+                const data = await response.json();
+                
+                // Remove typing indicator
+                typingIndicator.remove();
+
+                if (data.answer) {
+                    appendMessage(data.answer);
+                } else {
+                    appendMessage("ERROR: System logic failure. Please retry uplink.");
+                }
+                
+                // Reset voice input flag after response
+                // Wait a bit before resetting so appendMessage can catch it
+                setTimeout(() => { isVoiceInput = false; }, 100);
+
+            } catch (error) {
+                typingIndicator.remove();
+                appendMessage("FAILED: Link to Medical Core lost.");
+                isVoiceInput = false;
+            }
+        });
+    </script>
+</body>
+</html>
