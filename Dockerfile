@@ -6,4 +6,4 @@ COPY . /app
 
 RUN pip install -r requirements.txt
 
-CMD ["python3", "app.py"]
+CMD gunicorn --workers 1 --threads 1 --timeout 120 --bind 0.0.0.0:${PORT:-10000} app:app
